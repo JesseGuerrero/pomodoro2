@@ -75,12 +75,15 @@ export default function App() {
   useEffect(() => { init(); }, []);
 
   const init = async () => {
-    setTodos(await getTodos());
-    setSessions(await getSessions());
     try {
       await initGoogleAuth();
+      await requestToken();
+      setCalAuthed(true);
+      setTodos(await getTodos());
+      setSessions(await getSessions());
       await loadCal();
     } catch {
+      setCalAuthed(false);
       setCalLoading(false);
     }
   };
@@ -90,6 +93,8 @@ export default function App() {
       await initGoogleAuth();
       await requestToken();
       setCalAuthed(true);
+      setTodos(await getTodos());
+      setSessions(await getSessions());
       await loadCal();
     } catch {
       setCalLoading(false);
@@ -228,6 +233,21 @@ export default function App() {
   const r = 90, circ = 2 * Math.PI * r;
   const sortedTodos = [...todos].sort((a, b) => Number(b.priority) - Number(a.priority));
 
+  if (!calAuthed) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#0f0f13", color: "#e2e8f0", fontFamily: "system-ui,sans-serif", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ textAlign: "center", maxWidth: 360 }}>
+          <div style={{ fontSize: 64, marginBottom: 16 }}>🍅</div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: "#f8f8f2", marginBottom: 8 }}>Pomodoro + Today</div>
+          <div style={{ fontSize: 14, color: "#718096", marginBottom: 32 }}>Connect your Google Calendar to get started</div>
+          <button onClick={authAndLoadCal} style={{ padding: "14px 32px", background: Purple, color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 16, cursor: "pointer" }}>
+            📅 Connect Google Calendar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ minHeight: "100vh", background: "#0f0f13", color: "#e2e8f0", fontFamily: "system-ui,sans-serif", display: "flex", flexDirection: "column" }}>
       <div style={{ background: "#16161e", borderBottom: `1px solid ${Border}`, padding: "12px 24px", display: "flex", alignItems: "center", gap: 12 }}>
@@ -317,13 +337,8 @@ export default function App() {
               <button onClick={handleAddTodo} style={{ background: Purple, color: "#fff", border: "none", borderRadius: 8, padding: "8px 12px", cursor: "pointer", fontWeight: 700 }}>+</button>
             </div>
             <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
-              {!calAuthed && (
-                <button onClick={authAndLoadCal} style={{ background: "#1a1a2e", border: `1px solid ${Border}`, borderRadius: 8, padding: "10px 16px", color: "#a78bfa", cursor: "pointer", fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
-                  📅 Connect Google Calendar
-                </button>
-              )}
-              {calLoading && calAuthed && <div style={{ color: "#4a5568", fontSize: 12, textAlign: "center", padding: 8 }}>Loading calendar…</div>}
-              {calAuthed && !calLoading && upcomingCal.length > 0 && <>
+              {calLoading && <div style={{ color: "#4a5568", fontSize: 12, textAlign: "center", padding: 8 }}>Loading calendar…</div>}
+              {!calLoading && upcomingCal.length > 0 && <>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#718096", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Upcoming Events</div>
                 {upcomingCal.map(e => (
                   <div key={e.id} style={{ background: "#1a1a2e", border: "1px solid #3a3a5a", borderRadius: 8, padding: "8px 12px", display: "flex", alignItems: "center", gap: 10 }}>
@@ -335,7 +350,7 @@ export default function App() {
                   </div>
                 ))}
               </>}
-              {calAuthed && !calLoading && pastCal.length > 0 && <>
+              {!calLoading && pastCal.length > 0 && <>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#718096", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4, marginTop: 8 }}>
                   Past Events <span style={{ color: "#68d391" }}>+{calFocusMins}m focus</span>
                 </div>
@@ -364,7 +379,7 @@ export default function App() {
                   </div>
                 ))}
               </>}
-              {calAuthed && !calLoading && calEvents.length === 0 && todos.length === 0 && (
+              {!calLoading && calEvents.length === 0 && todos.length === 0 && (
                 <div style={{ color: "#4a5568", fontSize: 13, textAlign: "center", padding: 20 }}>No events or tasks for today</div>
               )}
             </div>
