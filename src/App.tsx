@@ -15,8 +15,9 @@ let tokenClient: any = null;
 let accessToken: string | null = null;
 
 function initGoogleAuth(): Promise<void> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     if (tokenClient) { resolve(); return; }
+    let elapsed = 0;
     const check = () => {
       if ((window as any).google?.accounts?.oauth2) {
         tokenClient = (window as any).google.accounts.oauth2.initTokenClient({
@@ -25,8 +26,11 @@ function initGoogleAuth(): Promise<void> {
           callback: () => {},
         });
         resolve();
+      } else if (elapsed >= 10000) {
+        reject(new Error("Google script failed to load"));
       } else {
-        setTimeout(check, 100);
+        elapsed += 200;
+        setTimeout(check, 200);
       }
     };
     check();
@@ -41,7 +45,7 @@ function requestToken(): Promise<string> {
       accessToken = resp.access_token;
       resolve(resp.access_token);
     };
-    tokenClient.requestAccessToken({ prompt: "" });
+    tokenClient.requestAccessToken({ prompt: "consent" });
   });
 }
 
@@ -65,6 +69,8 @@ export default function App() {
   const [calEvents, setCalEvents] = useState<CalEvent[]>([]);
   const [calLoading, setCalLoading] = useState(true);
   const [calAuthed, setCalAuthed] = useState(false);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState("");
   const [todoInput, setTodoInput] = useState("");
   const [tab, setTab] = useState("timer");
   const [saving, setSaving] = useState(false);
@@ -89,6 +95,8 @@ export default function App() {
   };
 
   const authAndLoadCal = async () => {
+    setAuthLoading(true);
+    setAuthError("");
     try {
       await initGoogleAuth();
       await requestToken();
@@ -96,8 +104,10 @@ export default function App() {
       setTodos(await getTodos());
       setSessions(await getSessions());
       await loadCal();
-    } catch {
+    } catch (e: any) {
+      setAuthLoading(false);
       setCalLoading(false);
+      setAuthError(e?.message || "Failed to connect. Check your internet and try again.");
     }
   };
 
@@ -240,9 +250,10 @@ export default function App() {
           <div style={{ fontSize: 64, marginBottom: 16 }}>🍅</div>
           <div style={{ fontSize: 24, fontWeight: 700, color: "#f8f8f2", marginBottom: 8 }}>Pomodoro + Today</div>
           <div style={{ fontSize: 14, color: "#718096", marginBottom: 32 }}>Connect your Google Calendar to get started</div>
-          <button onClick={authAndLoadCal} style={{ padding: "14px 32px", background: Purple, color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 16, cursor: "pointer" }}>
-            📅 Connect Google Calendar
+          <button onClick={authAndLoadCal} disabled={authLoading} style={{ padding: "14px 32px", background: authLoading ? "#4a4a6a" : Purple, color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 16, cursor: authLoading ? "wait" : "pointer" }}>
+            {authLoading ? "Connecting..." : "Connect Google Calendar"}
           </button>
+          {authError && <div style={{ marginTop: 16, color: "#fc8181", fontSize: 13 }}>{authError}</div>}
         </div>
       </div>
     );
