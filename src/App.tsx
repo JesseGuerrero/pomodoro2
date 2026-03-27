@@ -63,9 +63,9 @@ async function gcalFetch(path: string, options?: RequestInit) {
   });
   log(`gcalFetch response: ${res.status} ${res.statusText}`);
   if (res.status === 401 && isTauri) {
-    log("Token expired, re-authenticating...");
-    accessToken = await invoke<string>("google_oauth");
-    log(`Re-auth complete, token=${accessToken.slice(0, 8)}...`);
+    log("Token expired, refreshing silently...");
+    accessToken = await invoke<string>("try_refresh");
+    log(`Refresh complete, token=${accessToken.slice(0, 8)}...`);
     return tauriFetch(`https://www.googleapis.com/calendar/v3${path}`, {
       ...options,
       headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", ...options?.headers },
@@ -99,7 +99,20 @@ export default function App() {
   useEffect(() => { init(); }, []);
 
   const init = async () => {
-    if (isTauri) { setCalAuthed(false); setCalLoading(false); return; }
+    if (isTauri) {
+      try {
+        accessToken = await invoke<string>("try_refresh");
+        log(`Auto-login with stored token=${accessToken.slice(0, 8)}...`);
+        setCalAuthed(true);
+        setTodos(await getTodos());
+        setSessions(await getSessions());
+        await loadCal();
+      } catch {
+        setCalAuthed(false);
+        setCalLoading(false);
+      }
+      return;
+    }
     try {
       await initGoogleAuth();
       await requestToken();
