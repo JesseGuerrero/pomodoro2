@@ -4,14 +4,12 @@ use std::fs::{self, OpenOptions};
 
 const LOG_PATH: &str = r"C:\Users\jesse\Projects\Productivity\pomodoro-app\app.log";
 const TOKEN_PATH: &str = r"C:\Users\jesse\Projects\Productivity\pomodoro-app\tokens.json";
-const CREDS_PATH: &str = r"C:\Users\jesse\Projects\Productivity\pomodoro-app\credentials.json";
+const CREDS_JSON: &str = include_str!("../../credentials.json");
 const SCOPES: &str = "https://www.googleapis.com/auth/calendar";
 const PORT: u16 = 28173;
 
 fn load_creds() -> Result<(String, String), String> {
-    let data = fs::read_to_string(CREDS_PATH)
-        .map_err(|_| "credentials.json not found")?;
-    let v: serde_json::Value = serde_json::from_str(&data)
+    let v: serde_json::Value = serde_json::from_str(CREDS_JSON)
         .map_err(|_| "Invalid credentials.json")?;
     let id = v["client_id"].as_str().ok_or("No client_id")?.to_string();
     let secret = v["client_secret"].as_str().ok_or("No client_secret")?.to_string();
