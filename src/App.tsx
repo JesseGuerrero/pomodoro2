@@ -9,7 +9,7 @@ const SCOPES = "https://www.googleapis.com/auth/calendar";
 const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const uid = () => crypto.randomUUID();
-const Purple = "#6c63ff", Dark = "#1e1e2e", Border = "#2d2d3a";
+const Purple = "#6c63ff", Card = "#f5f5f7", Border = "#e2e2e8";
 
 type CalEvent = { id: string; summary: string; startIso: string; endIso: string; allDay: boolean };
 
@@ -311,28 +311,28 @@ export default function App() {
 
   if (!calAuthed) {
     return (
-      <div style={{ minHeight: "100vh", background: "#0f0f13", color: "#e2e8f0", fontFamily: "system-ui,sans-serif", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ minHeight: "100vh", background: "#ffffff", color: "#1a1a2e", fontFamily: "system-ui,sans-serif", display: "flex", alignItems: "center", justifyContent: "center" }}>
         <div style={{ textAlign: "center", maxWidth: 360 }}>
           <div style={{ fontSize: 64, marginBottom: 16 }}>🍅</div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: "#f8f8f2", marginBottom: 8 }}>Pomodoro + Today</div>
-          <div style={{ fontSize: 14, color: "#718096", marginBottom: 32 }}>Connect your Google Calendar to get started</div>
-          <button onClick={authAndLoadCal} disabled={authLoading} style={{ padding: "14px 32px", background: authLoading ? "#4a4a6a" : Purple, color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 16, cursor: authLoading ? "wait" : "pointer" }}>
+          <div style={{ fontSize: 24, fontWeight: 700, color: "#1a1a2e", marginBottom: 8 }}>Pomodoro + Today</div>
+          <div style={{ fontSize: 14, color: "#6b7280", marginBottom: 32 }}>Connect your Google Calendar to get started</div>
+          <button onClick={authAndLoadCal} disabled={authLoading} style={{ padding: "14px 32px", background: authLoading ? "#a5a3f0" : Purple, color: "#fff", border: "none", borderRadius: 12, fontWeight: 700, fontSize: 16, cursor: authLoading ? "wait" : "pointer" }}>
             {authLoading ? "Connecting..." : "Connect Google Calendar"}
           </button>
-          {authError && <div style={{ marginTop: 16, color: "#fc8181", fontSize: 13 }}>{authError}</div>}
+          {authError && <div style={{ marginTop: 16, color: "#dc2626", fontSize: 13 }}>{authError}</div>}
         </div>
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0f0f13", color: "#e2e8f0", fontFamily: "system-ui,sans-serif", display: "flex", flexDirection: "column" }}>
-      <div style={{ background: "#16161e", borderBottom: `1px solid ${Border}`, padding: "12px 24px", display: "flex", alignItems: "center", gap: 12 }}>
+    <div style={{ minHeight: "100vh", background: "#ffffff", color: "#1a1a2e", fontFamily: "system-ui,sans-serif", display: "flex", flexDirection: "column" }}>
+      <div style={{ background: "#fafafb", borderBottom: `1px solid ${Border}`, padding: "12px 24px", display: "flex", alignItems: "center", gap: 12 }}>
         <span style={{ fontSize: 20 }}>🍅</span>
-        <span style={{ fontWeight: 700, fontSize: 18, color: "#f8f8f2" }}>Pomodoro + Today</span>
+        <span style={{ fontWeight: 700, fontSize: 18, color: "#1a1a2e" }}>Pomodoro + Today</span>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           {["timer", "analytics"].map(t => (
-            <button key={t} onClick={() => setTab(t)} style={{ padding: "6px 14px", borderRadius: 8, border: "none", cursor: "pointer", background: tab === t ? Purple : "#2d2d3a", color: tab === t ? "#fff" : "#a0aec0", fontSize: 13, fontWeight: 600, textTransform: "capitalize" }}>{t}</button>
+            <button key={t} onClick={() => setTab(t)} style={{ padding: "6px 14px", borderRadius: 8, border: "none", cursor: "pointer", background: tab === t ? Purple : "#e8e8ee", color: tab === t ? "#fff" : "#6b7280", fontSize: 13, fontWeight: 600, textTransform: "capitalize" }}>{t}</button>
           ))}
         </div>
       </div>
@@ -340,130 +340,130 @@ export default function App() {
       {tab === "timer" && (
         <div style={{ display: "flex", flex: 1 }}>
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: "32px 24px", borderRight: `1px solid ${Border}` }}>
-            <div style={{ background: isBreak ? "#1a2e1a" : "#1e1a2e", borderRadius: 16, padding: "8px 20px", marginBottom: 24, fontSize: 13, fontWeight: 600, color: isBreak ? "#68d391" : "#a78bfa" }}>
+            <div style={{ background: isBreak ? "#dcfce7" : "#ede9fe", borderRadius: 16, padding: "8px 20px", marginBottom: 24, fontSize: 13, fontWeight: 600, color: isBreak ? "#16a34a" : "#7c3aed" }}>
               {isBreak ? "☕ Break Time" : "🎯 Focus Session"}
             </div>
             <div style={{ position: "relative", marginBottom: 24 }}>
               <svg width={220} height={220} style={{ transform: "rotate(-90deg)" }}>
                 <circle cx={110} cy={110} r={r} fill="none" stroke={Border} strokeWidth={10} />
-                <circle cx={110} cy={110} r={r} fill="none" stroke={isBreak ? "#68d391" : Purple} strokeWidth={10}
+                <circle cx={110} cy={110} r={r} fill="none" stroke={isBreak ? "#16a34a" : Purple} strokeWidth={10}
                   strokeDasharray={circ} strokeDashoffset={circ * (1 - pct)} strokeLinecap="round"
                   style={{ transition: "stroke-dashoffset 1s linear" }} />
               </svg>
               <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-                <span style={{ fontSize: 42, fontWeight: 700, fontVariantNumeric: "tabular-nums", color: finished ? "#fc8181" : "#f8f8f2" }}>
+                <span style={{ fontSize: 42, fontWeight: 700, fontVariantNumeric: "tabular-nums", color: finished ? "#dc2626" : "#1a1a2e" }}>
                   {fmt(seconds)}
                 </span>
-                {finished && <span style={{ fontSize: 11, color: "#fc8181", marginTop: 2, fontWeight: 600, letterSpacing: 1 }}>TIME'S UP</span>}
+                {finished && <span style={{ fontSize: 11, color: "#dc2626", marginTop: 2, fontWeight: 600, letterSpacing: 1 }}>TIME'S UP</span>}
               </div>
             </div>
             {!isBreak && (
               <div style={{ width: "100%", maxWidth: 260, marginBottom: 20 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#718096", marginBottom: 4 }}>
-                  <span>Duration</span><span style={{ color: "#a78bfa", fontWeight: 600 }}>{duration} min</span>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+                  <span>Duration</span><span style={{ color: "#7c3aed", fontWeight: 600 }}>{duration} min</span>
                 </div>
                 <input type="range" min={20} max={60} value={duration} onChange={e => changeDur(+e.target.value)} disabled={running} style={{ width: "100%", accentColor: Purple }} />
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#4a5568" }}><span>20</span><span>60</span></div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#9ca3af" }}><span>20</span><span>60</span></div>
               </div>
             )}
             <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
               {finished ? <>
-                <button onClick={addTime} style={{ padding: "10px 28px", background: "#4a3a1a", color: "#f6e05e", border: "1px solid #6b5a2a", borderRadius: 10, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>+10 min</button>
+                <button onClick={addTime} style={{ padding: "10px 28px", background: "#fef9c3", color: "#854d0e", border: "1px solid #fde68a", borderRadius: 10, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>+10 min</button>
                 <button onClick={handleComplete} style={{ padding: "10px 28px", background: Purple, color: "#fff", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Done</button>
               </> : !running
                 ? <button onClick={start} style={{ padding: "10px 28px", background: Purple, color: "#fff", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>▶ Start</button>
-                : <button onClick={pause} style={{ padding: "10px 28px", background: "#4a4a6a", color: "#fff", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>⏸ Pause</button>
+                : <button onClick={pause} style={{ padding: "10px 28px", background: "#e8e8ee", color: "#1a1a2e", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>⏸ Pause</button>
               }
-              <button onClick={reset} style={{ padding: "10px 16px", background: "#2d2d3a", color: "#a0aec0", border: "none", borderRadius: 10, fontSize: 15, cursor: "pointer" }}>↺</button>
+              <button onClick={reset} style={{ padding: "10px 16px", background: "#e8e8ee", color: "#6b7280", border: "none", borderRadius: 10, fontSize: 15, cursor: "pointer" }}>↺</button>
               <button onClick={async () => {
                 setSaving(true); setSaveMsg("");
                 const ok = await saveSession(duration, startedAt.current);
                 setSaving(false); setSaveMsg(ok ? "✓ Saved!" : "Need 10+ min");
                 setTimeout(() => setSaveMsg(""), 3000);
-              }} disabled={saving} style={{ padding: "10px 16px", background: "#1a3a2a", color: "#68d391", border: "1px solid #2d5a3a", borderRadius: 10, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
+              }} disabled={saving} style={{ padding: "10px 16px", background: "#dcfce7", color: "#16a34a", border: "1px solid #bbf7d0", borderRadius: 10, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
                 {saving ? "Saving…" : "💾 Save"}
               </button>
             </div>
-            {saveMsg && <div style={{ fontSize: 12, color: saveMsg.includes("Need") ? "#fc8181" : "#68d391", marginBottom: 8 }}>{saveMsg}</div>}
+            {saveMsg && <div style={{ fontSize: 12, color: saveMsg.includes("Need") ? "#dc2626" : "#16a34a", marginBottom: 8 }}>{saveMsg}</div>}
             <div style={{ display: "flex", gap: 16, margin: "16px 0" }}>
               {[{ label: "🍅 Pomodoros", val: todaySessions.length }, { label: "⏱ Focus Today", val: `${totalFocusMins}m` }].map(s => (
-                <div key={s.label} style={{ background: Dark, borderRadius: 10, padding: "10px 18px", textAlign: "center" }}>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: "#a78bfa" }}>{s.val}</div>
-                  <div style={{ fontSize: 11, color: "#718096" }}>{s.label}</div>
+                <div key={s.label} style={{ background: Card, borderRadius: 10, padding: "10px 18px", textAlign: "center" }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#7c3aed" }}>{s.val}</div>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>{s.label}</div>
                 </div>
               ))}
             </div>
             <div style={{ width: "100%", maxWidth: 320 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#718096", marginBottom: 8 }}>Recent Sessions</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#6b7280", marginBottom: 8 }}>Recent Sessions</div>
               <div style={{ maxHeight: 150, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
                 {todaySessions.slice(0, 6).map(s => (
-                  <div key={s.id} style={{ background: Dark, borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>
+                  <div key={s.id} style={{ background: Card, borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>
                     🍅 {s.duration_minutes}m — {fmtTime(s.started_at)}
                   </div>
                 ))}
-                {todaySessions.length === 0 && <div style={{ color: "#4a5568", fontSize: 13, textAlign: "center", padding: 12 }}>No sessions yet</div>}
+                {todaySessions.length === 0 && <div style={{ color: "#9ca3af", fontSize: 13, textAlign: "center", padding: 12 }}>No sessions yet</div>}
               </div>
             </div>
           </div>
 
           <div style={{ width: 340, display: "flex", flexDirection: "column", padding: "24px 16px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: "#f8f8f2" }}>📅 Today's List</div>
-              <button onClick={loadCal} style={{ background: "none", border: "none", color: "#718096", cursor: "pointer", fontSize: 14 }}>🔄</button>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#1a1a2e" }}>📅 Today's List</div>
+              <button onClick={loadCal} style={{ background: "none", border: "none", color: "#6b7280", cursor: "pointer", fontSize: 14 }}>🔄</button>
             </div>
             <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
               <input value={todoInput} onChange={e => setTodoInput(e.target.value)} onKeyDown={e => e.key === "Enter" && handleAddTodo()}
-                placeholder="Add a task..." style={{ flex: 1, background: Dark, border: `1px solid ${Border}`, borderRadius: 8, padding: "8px 12px", color: "#e2e8f0", fontSize: 13, outline: "none" }} />
+                placeholder="Add a task..." style={{ flex: 1, background: Card, border: `1px solid ${Border}`, borderRadius: 8, padding: "8px 12px", color: "#1a1a2e", fontSize: 13, outline: "none" }} />
               <button onClick={handleAddTodo} style={{ background: Purple, color: "#fff", border: "none", borderRadius: 8, padding: "8px 12px", cursor: "pointer", fontWeight: 700 }}>+</button>
             </div>
             <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
-              {calLoading && <div style={{ color: "#4a5568", fontSize: 12, textAlign: "center", padding: 8 }}>Loading calendar…</div>}
+              {calLoading && <div style={{ color: "#9ca3af", fontSize: 12, textAlign: "center", padding: 8 }}>Loading calendar…</div>}
               {!calLoading && upcomingCal.length > 0 && <>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#718096", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Upcoming Events</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Upcoming Events</div>
                 {upcomingCal.map(e => (
-                  <div key={e.id} style={{ background: "#1a1a2e", border: "1px solid #3a3a5a", borderRadius: 8, padding: "8px 12px", display: "flex", alignItems: "center", gap: 10 }}>
+                  <div key={e.id} style={{ background: "#ede9fe", border: "1px solid #ddd6fe", borderRadius: 8, padding: "8px 12px", display: "flex", alignItems: "center", gap: 10 }}>
                     <span>📆</span>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, color: "#c4b5fd", fontWeight: 600 }}>{e.summary}</div>
-                      <div style={{ fontSize: 11, color: "#718096" }}>{fmtTime(e.startIso)} – {fmtTime(e.endIso)}</div>
+                      <div style={{ fontSize: 13, color: "#5b21b6", fontWeight: 600 }}>{e.summary}</div>
+                      <div style={{ fontSize: 11, color: "#6b7280" }}>{fmtTime(e.startIso)} – {fmtTime(e.endIso)}</div>
                     </div>
                   </div>
                 ))}
               </>}
               {!calLoading && pastCal.length > 0 && <>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#718096", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4, marginTop: 8 }}>
-                  Past Events <span style={{ color: "#68d391" }}>+{calFocusMins}m focus</span>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4, marginTop: 8 }}>
+                  Past Events <span style={{ color: "#16a34a" }}>+{calFocusMins}m focus</span>
                 </div>
                 {pastCal.map(e => (
-                  <div key={e.id} style={{ background: Dark, borderRadius: 8, padding: "8px 12px", display: "flex", alignItems: "center", gap: 10, opacity: 0.55 }}>
+                  <div key={e.id} style={{ background: Card, borderRadius: 8, padding: "8px 12px", display: "flex", alignItems: "center", gap: 10, opacity: 0.6 }}>
                     <span>✅</span>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, color: "#a0aec0", textDecoration: "line-through" }}>{e.summary}</div>
-                      <div style={{ fontSize: 11, color: "#718096" }}>{fmtTime(e.startIso)} – {fmtTime(e.endIso)}</div>
+                      <div style={{ fontSize: 13, color: "#6b7280", textDecoration: "line-through" }}>{e.summary}</div>
+                      <div style={{ fontSize: 11, color: "#9ca3af" }}>{fmtTime(e.startIso)} – {fmtTime(e.endIso)}</div>
                     </div>
                   </div>
                 ))}
               </>}
               {sortedTodos.length > 0 && <>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#718096", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4, marginTop: 8 }}>Tasks</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4, marginTop: 8 }}>Tasks</div>
                 {sortedTodos.map(t => (
-                  <div key={t.id} style={{ background: Dark, borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, opacity: t.completed ? 0.55 : 1, border: t.priority ? "1px solid #2d5a2d" : "1px solid transparent" }}>
-                    <button onClick={() => toggleTodo(t)} style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${t.completed ? Purple : "#4a5568"}`, background: t.completed ? Purple : "transparent", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 11 }}>
+                  <div key={t.id} style={{ background: Card, borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, opacity: t.completed ? 0.6 : 1, border: t.priority ? "1px solid #bbf7d0" : "1px solid transparent" }}>
+                    <button onClick={() => toggleTodo(t)} style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${t.completed ? Purple : "#d1d5db"}`, background: t.completed ? Purple : "transparent", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 11 }}>
                       {t.completed ? "✓" : ""}
                     </button>
-                    <span style={{ flex: 1, fontSize: 13, textDecoration: t.completed ? "line-through" : "none", color: t.completed ? "#718096" : "#e2e8f0" }}>{t.text}</span>
-                    <button onClick={() => togglePriority(t)} style={{ background: t.priority ? "#1a3a1a" : "none", border: t.priority ? "1px solid #2d5a2d" : `1px solid ${Border}`, borderRadius: 6, color: t.priority ? "#68d391" : "#4a5568", cursor: "pointer", fontSize: 10, fontWeight: 700, padding: "2px 6px", flexShrink: 0 }}>
+                    <span style={{ flex: 1, fontSize: 13, textDecoration: t.completed ? "line-through" : "none", color: t.completed ? "#9ca3af" : "#1a1a2e" }}>{t.text}</span>
+                    <button onClick={() => togglePriority(t)} style={{ background: t.priority ? "#dcfce7" : "none", border: t.priority ? "1px solid #bbf7d0" : `1px solid ${Border}`, borderRadius: 6, color: t.priority ? "#16a34a" : "#9ca3af", cursor: "pointer", fontSize: 10, fontWeight: 700, padding: "2px 6px", flexShrink: 0 }}>
                       {t.priority ? "● Priority" : "+ Priority"}
                     </button>
-                    <button onClick={() => handleDelTodo(t.id)} style={{ background: "none", border: "none", color: "#4a5568", cursor: "pointer", fontSize: 14, padding: 0 }}>✕</button>
+                    <button onClick={() => handleDelTodo(t.id)} style={{ background: "none", border: "none", color: "#9ca3af", cursor: "pointer", fontSize: 14, padding: 0 }}>✕</button>
                   </div>
                 ))}
               </>}
               {!calLoading && calEvents.length === 0 && todos.length === 0 && (
-                <div style={{ color: "#4a5568", fontSize: 13, textAlign: "center", padding: 20 }}>No events or tasks for today</div>
+                <div style={{ color: "#9ca3af", fontSize: 13, textAlign: "center", padding: 20 }}>No events or tasks for today</div>
               )}
             </div>
-            <div style={{ marginTop: 12, fontSize: 12, color: "#4a5568", textAlign: "right" }}>
+            <div style={{ marginTop: 12, fontSize: 12, color: "#9ca3af", textAlign: "right" }}>
               {todos.filter(t => t.completed).length}/{todos.length} tasks done
             </div>
           </div>
@@ -472,23 +472,23 @@ export default function App() {
 
       {tab === "analytics" && (
         <div style={{ padding: 32 }}>
-          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 24, color: "#f8f8f2" }}>📊 Weekly Analytics</div>
+          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 24, color: "#1a1a2e" }}>📊 Weekly Analytics</div>
           <div style={{ display: "flex", gap: 16, marginBottom: 32 }}>
             {[{ label: "Total Sessions", val: sessions.length }, { label: "Pomodoro Mins", val: pomodoroMins }, { label: "Cal Focus Mins", val: calFocusMins }, { label: "Tasks Done", val: todos.filter(t => t.completed).length }].map(s => (
-              <div key={s.label} style={{ flex: 1, background: Dark, borderRadius: 12, padding: "16px 20px" }}>
-                <div style={{ fontSize: 26, fontWeight: 700, color: "#a78bfa" }}>{s.val}</div>
-                <div style={{ fontSize: 12, color: "#718096", marginTop: 4 }}>{s.label}</div>
+              <div key={s.label} style={{ flex: 1, background: Card, borderRadius: 12, padding: "16px 20px" }}>
+                <div style={{ fontSize: 26, fontWeight: 700, color: "#7c3aed" }}>{s.val}</div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>{s.label}</div>
               </div>
             ))}
           </div>
-          <div style={{ background: Dark, borderRadius: 12, padding: 24 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "#a0aec0", marginBottom: 20 }}>Pomodoro Minutes — Last 7 Days</div>
+          <div style={{ background: Card, borderRadius: 12, padding: 24 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#4b5563", marginBottom: 20 }}>Pomodoro Minutes — Last 7 Days</div>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 12, height: 140 }}>
               {weekData.map(d => (
                 <div key={d.date} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-                  <div style={{ fontSize: 11, color: "#718096" }}>{d.mins > 0 ? d.mins : ""}</div>
-                  <div style={{ width: "100%", background: d.date === todayStr ? Purple : "#3d3d5a", borderRadius: "4px 4px 0 0", height: `${Math.max((d.mins / maxMins) * 100, d.mins > 0 ? 4 : 0)}px`, transition: "height 0.4s" }} />
-                  <div style={{ fontSize: 11, color: d.date === todayStr ? "#a78bfa" : "#718096", fontWeight: d.date === todayStr ? 700 : 400 }}>{d.label}</div>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>{d.mins > 0 ? d.mins : ""}</div>
+                  <div style={{ width: "100%", background: d.date === todayStr ? Purple : "#e2e2e8", borderRadius: "4px 4px 0 0", height: `${Math.max((d.mins / maxMins) * 100, d.mins > 0 ? 4 : 0)}px`, transition: "height 0.4s" }} />
+                  <div style={{ fontSize: 11, color: d.date === todayStr ? "#7c3aed" : "#6b7280", fontWeight: d.date === todayStr ? 700 : 400 }}>{d.label}</div>
                 </div>
               ))}
             </div>
