@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { getTodos, addTodo, updateTodo, deleteTodo, getSessions, addSession, type Todo, type Session } from "./storage";
 
 const GOOGLE_CLIENT_ID = "816183260763-1g50kp8s8dbbgj8v2gbc45aupaman4cl.apps.googleusercontent.com";
@@ -11,6 +13,8 @@ const Purple = "#6c63ff", Dark = "#1e1e2e", Border = "#2d2d3a";
 
 type CalEvent = { id: string; summary: string; startIso: string; endIso: string; allDay: boolean };
 
+const isTauri = !!(window as any).__TAURI_INTERNALS__;
+const log = (msg: string) => { if (isTauri) invoke("log_to_file", { msg }).catch(() => {}); };
 let tokenClient: any = null;
 let accessToken: string | null = null;
 
@@ -50,11 +54,24 @@ function requestToken(): Promise<string> {
 }
 
 async function gcalFetch(path: string, options?: RequestInit) {
-  const token = await requestToken();
-  return fetch(`https://www.googleapis.com/calendar/v3${path}`, {
+  const token = isTauri ? accessToken! : await requestToken();
+  const f = isTauri ? tauriFetch : fetch;
+  log(`gcalFetch ${options?.method || "GET"} ${path} token=${token ? token.slice(0, 8) + "..." : "null"}`);
+  const res = await f(`https://www.googleapis.com/calendar/v3${path}`, {
     ...options,
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...options?.headers },
   });
+  log(`gcalFetch response: ${res.status} ${res.statusText}`);
+  if (res.status === 401 && isTauri) {
+    log("Token expired, re-authenticating...");
+    accessToken = await invoke<string>("google_oauth");
+    log(`Re-auth complete, token=${accessToken.slice(0, 8)}...`);
+    return tauriFetch(`https://www.googleapis.com/calendar/v3${path}`, {
+      ...options,
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", ...options?.headers },
+    });
+  }
+  return res;
 }
 
 export default function App() {
@@ -63,7 +80,8 @@ export default function App() {
   const [seconds, setSeconds] = useState(25 * 60);
   const [running, setRunning] = useState(false);
   const [isBreak, setIsBreak] = useState(false);
-  const [overtime, setOvertime] = useState(0);
+  const [finished, setFinished] = useState(false);
+  const bellPlayedAt = useRef<number | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [calEvents, setCalEvents] = useState<CalEvent[]>([]);
@@ -81,6 +99,7 @@ export default function App() {
   useEffect(() => { init(); }, []);
 
   const init = async () => {
+    if (isTauri) { setCalAuthed(false); setCalLoading(false); return; }
     try {
       await initGoogleAuth();
       await requestToken();
@@ -98,13 +117,20 @@ export default function App() {
     setAuthLoading(true);
     setAuthError("");
     try {
-      await initGoogleAuth();
-      await requestToken();
+      if (isTauri) {
+        log("Starting Tauri OAuth flow");
+        accessToken = await invoke<string>("google_oauth");
+        log(`OAuth complete, token=${accessToken.slice(0, 8)}...`);
+      } else {
+        await initGoogleAuth();
+        await requestToken();
+      }
       setCalAuthed(true);
       setTodos(await getTodos());
       setSessions(await getSessions());
       await loadCal();
     } catch (e: any) {
+      log(`authAndLoadCal error: ${JSON.stringify(e)}`);
       setAuthLoading(false);
       setCalLoading(false);
       setAuthError(e?.message || "Failed to connect. Check your internet and try again.");
@@ -113,6 +139,7 @@ export default function App() {
 
   const loadCal = async () => {
     setCalLoading(true);
+    log("loadCal started");
     try {
       const now = new Date();
       const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
@@ -130,8 +157,10 @@ export default function App() {
         endIso: e.end?.dateTime || e.end?.date || "",
         allDay: !!e.start?.date,
       }));
+      log(`loadCal got ${events.length} events`);
       setCalEvents(events);
-    } catch {
+    } catch (e: any) {
+      log(`loadCal error: ${e?.message || JSON.stringify(e)}`);
       setCalEvents([]);
     }
     setCalLoading(false);
@@ -139,8 +168,9 @@ export default function App() {
 
   const saveToGCal = async (startIso: string, mins: number) => {
     const endIso = new Date(new Date(startIso).getTime() + mins * 60000).toISOString();
+    log(`saveToGCal: ${mins}m session starting ${startIso}`);
     try {
-      await gcalFetch("/calendars/primary/events", {
+      const res = await gcalFetch("/calendars/primary/events", {
         method: "POST",
         body: JSON.stringify({
           summary: `🍅 Pomodoro Session (${mins}m)`,
@@ -148,7 +178,15 @@ export default function App() {
           end: { dateTime: endIso },
         }),
       });
-    } catch {}
+      if (!res.ok) {
+        const err = await res.text();
+        log(`saveToGCal failed: ${res.status} ${err}`);
+      } else {
+        log("saveToGCal success");
+      }
+    } catch (e: any) {
+      log(`saveToGCal exception: ${e?.message || JSON.stringify(e)}`);
+    }
   };
 
   const playBell = () => {
@@ -180,30 +218,45 @@ export default function App() {
   };
 
   const handleComplete = useCallback(async () => {
-    if (ivRef.current) clearInterval(ivRef.current);
-    playBell();
     if (!isBreak) { await saveSession(duration, startedAt.current); setIsBreak(true); setSeconds(BREAK * 60); }
     else { setIsBreak(false); setSeconds(duration * 60); }
-    setRunning(false); startedAt.current = null;
+    setFinished(false); bellPlayedAt.current = null; startedAt.current = null;
   }, [isBreak, duration, sessions]);
 
   useEffect(() => {
     if (running) {
       ivRef.current = setInterval(() => {
         setSeconds(s => {
-          if (s > 0) return s - 1;
-          if (s === 0) playBell();
-          setOvertime(o => o + 1);
-          return 0;
+          if (s <= 1 && s > 0) {
+            playBell();
+            bellPlayedAt.current = Date.now();
+            setFinished(true);
+            setRunning(false);
+            return 0;
+          }
+          return s - 1;
         });
       }, 1000);
     } else if (ivRef.current) clearInterval(ivRef.current);
     return () => { if (ivRef.current) clearInterval(ivRef.current); };
-  }, [running, handleComplete]);
+  }, [running]);
 
-  const start = () => { if (!startedAt.current) startedAt.current = new Date().toISOString(); setOvertime(0); setRunning(true); };
+  // Ring again 3 minutes after finishing if still idle
+  useEffect(() => {
+    if (!finished) return;
+    const iv = setInterval(() => {
+      if (bellPlayedAt.current && Date.now() - bellPlayedAt.current >= 180000) {
+        playBell();
+        bellPlayedAt.current = Date.now();
+      }
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [finished]);
+
+  const start = () => { if (!startedAt.current) startedAt.current = new Date().toISOString(); setFinished(false); bellPlayedAt.current = null; setRunning(true); };
   const pause = () => setRunning(false);
-  const reset = () => { if (ivRef.current) clearInterval(ivRef.current); setRunning(false); setIsBreak(false); setSeconds(duration * 60); setOvertime(0); startedAt.current = null; };
+  const addTime = () => { setSeconds(10 * 60); setFinished(false); bellPlayedAt.current = null; setRunning(true); };
+  const reset = () => { if (ivRef.current) clearInterval(ivRef.current); setRunning(false); setIsBreak(false); setSeconds(duration * 60); setFinished(false); bellPlayedAt.current = null; startedAt.current = null; };
   const changeDur = (v: number) => { if (!running) { setDuration(v); if (!isBreak) setSeconds(v * 60); } };
 
   const handleAddTodo = async () => {
@@ -285,10 +338,10 @@ export default function App() {
                   style={{ transition: "stroke-dashoffset 1s linear" }} />
               </svg>
               <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-                <span style={{ fontSize: 42, fontWeight: 700, fontVariantNumeric: "tabular-nums", color: overtime > 0 ? "#fc8181" : "#f8f8f2" }}>
-                  {overtime > 0 ? `+${fmt(overtime)}` : fmt(seconds)}
+                <span style={{ fontSize: 42, fontWeight: 700, fontVariantNumeric: "tabular-nums", color: finished ? "#fc8181" : "#f8f8f2" }}>
+                  {fmt(seconds)}
                 </span>
-                {overtime > 0 && <span style={{ fontSize: 11, color: "#fc8181", marginTop: 2, fontWeight: 600, letterSpacing: 1 }}>OVERTIME</span>}
+                {finished && <span style={{ fontSize: 11, color: "#fc8181", marginTop: 2, fontWeight: 600, letterSpacing: 1 }}>TIME'S UP</span>}
               </div>
             </div>
             {!isBreak && (
@@ -301,7 +354,10 @@ export default function App() {
               </div>
             )}
             <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
-              {!running
+              {finished ? <>
+                <button onClick={addTime} style={{ padding: "10px 28px", background: "#4a3a1a", color: "#f6e05e", border: "1px solid #6b5a2a", borderRadius: 10, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>+10 min</button>
+                <button onClick={handleComplete} style={{ padding: "10px 28px", background: Purple, color: "#fff", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Done</button>
+              </> : !running
                 ? <button onClick={start} style={{ padding: "10px 28px", background: Purple, color: "#fff", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>▶ Start</button>
                 : <button onClick={pause} style={{ padding: "10px 28px", background: "#4a4a6a", color: "#fff", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>⏸ Pause</button>
               }
