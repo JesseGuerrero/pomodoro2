@@ -1,9 +1,18 @@
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::fs::{self, OpenOptions};
+use std::path::PathBuf;
 
-const LOG_PATH: &str = r"C:\Users\jesse\Projects\Productivity\pomodoro-app\app.log";
-const TOKEN_PATH: &str = r"C:\Users\jesse\Projects\Productivity\pomodoro-app\tokens.json";
+fn app_dir() -> PathBuf {
+    let dir = dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("pomodoro-today");
+    let _ = fs::create_dir_all(&dir);
+    dir
+}
+
+fn log_path() -> PathBuf { app_dir().join("app.log") }
+fn token_path() -> PathBuf { app_dir().join("tokens.json") }
 const CREDS_JSON: &str = include_str!("../../credentials.json");
 const SCOPES: &str = "https://www.googleapis.com/auth/calendar";
 const PORT: u16 = 28173;
@@ -18,7 +27,7 @@ fn load_creds() -> Result<(String, String), String> {
 
 fn log(msg: &str) {
     use std::io::Write as _;
-    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(LOG_PATH) {
+    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(log_path()) {
         let ts = chrono::Local::now().format("%H:%M:%S");
         let _ = writeln!(f, "[{}] {}", ts, msg);
     }
@@ -35,11 +44,11 @@ fn save_tokens(access: &str, refresh: &str, expires_in: u64) {
         "refresh_token": refresh,
         "expires_at": expires_at
     });
-    let _ = fs::write(TOKEN_PATH, json.to_string());
+    let _ = fs::write(token_path(), json.to_string());
 }
 
 fn load_tokens() -> Option<serde_json::Value> {
-    fs::read_to_string(TOKEN_PATH).ok()
+    fs::read_to_string(token_path()).ok()
         .and_then(|s| serde_json::from_str(&s).ok())
 }
 

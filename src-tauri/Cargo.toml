@@ -22,6 +22,7 @@ serde = { version = "1", features = ["derive"] }
 open = "5"
 chrono = "0.4"
 ureq = { version = "2", features = ["json"] }
+dirs = "5"
 
 [profile.release]
 opt-level = "s"

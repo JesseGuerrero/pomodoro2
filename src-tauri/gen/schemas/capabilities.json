@@ -1,1 +1,1 @@
-{}
+{"default":{"identifier":"default","description":"Default capabilities","local":true,"windows":["main"],"permissions":["core:default",{"identifier":"http:default","allow":[{"url":"https://www.googleapis.com/*"}]}]}}
