@@ -25,12 +25,39 @@ type CalEvent = { id: string; summary: string; startIso: string; endIso: string;
 // 1=1st .. 5=5th, -1=last (e.g. days:[2], weeks:[2,4] = 2nd & 4th Tuesday).
 // Omit `weeks` for a plain weekly schedule.
 // Use intervalMs OR days OR dayOfMonth.
-type Recurring = { texts: string[]; intervalMs?: number; days?: number[]; weeks?: number[]; dayOfMonth?: number; atHour?: number };
+//
+// A sequence member can be a plain string (uses the entry's schedule, advances
+// by index after each pop) OR an object with its OWN schedule. When any member
+// carries its own schedule the entry runs in "selection mode": on each tick the
+// member whose schedule is due now is inserted (still one-at-a-time, no dupes).
+type Schedule = { days?: number[]; weeks?: number[]; dayOfMonth?: number; atHour?: number };
+type SeqItem = string | (Schedule & { text: string });
+type Recurring = Schedule & { texts: SeqItem[]; intervalMs?: number };
+const itemText = (it: SeqItem) => (typeof it === "string" ? it : it.text);
 const RECURRING: Recurring[] = [
   { texts: ["Shave"], days: [1, 5], atHour: 12 }, // Monday & Friday at noon
   { texts: ["Haircut"], dayOfMonth: 1, atHour: 12 }, // 1st of the month at noon
   { texts: ["Gym"], days: [1, 3, 5, 6] }, // Monday, Wednesday, Friday, Saturday
+  { texts: [ // Cleaning rotation — each room on its own Tuesday/Thursday schedule
+    { text: "Clean Restroom", days: [2], weeks: [1, 3] },    // 1st & 3rd Tuesday
+    { text: "Clean Bedroom", days: [2], weeks: [2, 4] },     // 2nd & 4th Tuesday
+    { text: "Clean Living Room", days: [4], weeks: [1, 3] }, // 1st & 3rd Thursday
+    { text: "Clean Kitchen", days: [4], weeks: [2, 4] },     // 2nd & 4th Thursday
+  ] },
 ];
+
+// Is `s` due at `now` (weekly/monthly/nth-weekday/hour gates; no gate = always)?
+function isDue(s: Schedule, now: Date): boolean {
+  if (s.days && !s.days.includes(now.getDay())) return false;
+  if (s.weeks) {
+    const week = Math.ceil(now.getDate() / 7);
+    const last = now.getDate() + 7 > new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    if (!(s.weeks.includes(week) || (s.weeks.includes(-1) && last))) return false;
+  }
+  if (s.dayOfMonth != null && now.getDate() !== s.dayOfMonth) return false;
+  if (s.atHour != null && now.getHours() < s.atHour) return false;
+  return true;
+}
 
 const isTauri = !!(window as any).__TAURI_INTERNALS__;
 const log = (msg: string) => { if (isTauri) invoke("log_to_file", { msg }).catch(() => {}); };
@@ -128,31 +155,32 @@ export default function App() {
   // Recurring todos — advance each sequence one text at a time, never duplicating.
   useEffect(() => {
     if (!calAuthed || !todosLoaded) return; // wait for Supabase todos so we don't re-add an existing one
-    const advance = async (r: Recurring, key: number) => {
-      const now = new Date();
-      if (r.days && !r.days.includes(now.getDay())) return;
-      if (r.weeks) {
-        const weekOfMonth = Math.ceil(now.getDate() / 7);
-        const lastOfKind = now.getDate() + 7 > new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-        if (!(r.weeks.includes(weekOfMonth) || (r.weeks.includes(-1) && lastOfKind))) return;
-      }
-      if (r.dayOfMonth != null && now.getDate() !== r.dayOfMonth) return;
-      if (r.atHour != null && now.getHours() < r.atHour) return;
-
-      const s = seqState.current[key] ?? (seqState.current[key] = { idx: 0, placed: false });
-      // If any member of the sequence is on the list, it's still active — wait.
-      // Resync the cursor to it so restarts don't break the sequence order.
-      const presentIdx = r.texts.findIndex(tx => todosRef.current.some(t => t.text === tx));
-      if (presentIdx !== -1) { s.idx = presentIdx; s.placed = true; return; }
-
-      // None present: if the current one was placed, it got popped — move to next.
-      if (s.placed) s.idx = (s.idx + 1) % r.texts.length;
-      const text = r.texts[s.idx];
+    const insert = async (text: string, note: string) => {
       const todo: Todo = { id: uid(), text, completed: false, priority: false, created_at: new Date().toISOString() };
-      s.placed = true;
       setTodos(prev => [todo, ...prev]);
       await addTodo(todo);
-      log(`Recurring: added "${text}" (seq ${key} idx ${s.idx})`);
+      log(`Recurring: added "${text}" (${note})`);
+    };
+    const advance = async (r: Recurring, key: number) => {
+      const now = new Date();
+      // If any member of the sequence is on the list, it's still active — wait.
+      const presentIdx = r.texts.findIndex(it => todosRef.current.some(t => t.text === itemText(it)));
+
+      // Selection mode: members carry their own schedules — insert whichever is due.
+      if (r.texts.some(it => typeof it !== "string")) {
+        if (presentIdx !== -1) return;
+        const due = r.texts.find(it => typeof it !== "string" && isDue(it, now));
+        if (due) await insert(itemText(due), `seq ${key} scheduled`);
+        return;
+      }
+
+      // Sequence mode: one entry-level schedule, advance by index after each pop.
+      if (!isDue(r, now)) return;
+      const s = seqState.current[key] ?? (seqState.current[key] = { idx: 0, placed: false });
+      if (presentIdx !== -1) { s.idx = presentIdx; s.placed = true; return; } // resync after restart
+      if (s.placed) s.idx = (s.idx + 1) % r.texts.length; // previous was popped — move to next
+      s.placed = true;
+      await insert(itemText(r.texts[s.idx]), `seq ${key} idx ${s.idx}`);
     };
     const timers = RECURRING.map((r, key) => {
       advance(r, key); // check immediately on mount
