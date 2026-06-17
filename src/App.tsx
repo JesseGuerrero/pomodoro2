@@ -38,6 +38,8 @@ const RECURRING: Recurring[] = [
   { texts: ["Shave"], days: [1, 5], atHour: 12 }, // Monday & Friday at noon
   { texts: ["Haircut"], dayOfMonth: 1, atHour: 12 }, // 1st of the month at noon
   { texts: ["Gym"], days: [1, 3, 5, 6] }, // Monday, Wednesday, Friday, Saturday
+  { texts: ["Pay Bills"], dayOfMonth: 1 }, // 1st of the month
+  { texts: ["Change AC filters"], dayOfMonth: 20 }, // 20th of the month
   { texts: [ // Cleaning rotation — each room on its own Tuesday/Thursday schedule
     { text: "Clean Restroom", days: [2], weeks: [1, 3] },    // 1st & 3rd Tuesday
     { text: "Clean Bedroom", days: [2], weeks: [2, 4] },     // 2nd & 4th Tuesday
