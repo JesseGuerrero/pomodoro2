@@ -45,3 +45,7 @@ export async function getSessions(): Promise<Session[]> {
 export async function addSession(session: Omit<Session, "created_at">): Promise<void> {
   await supabase.from("sessions").insert(session);
 }
+
+export async function deleteSession(id: string): Promise<void> {
+  await supabase.from("sessions").delete().eq("id", id);
+}

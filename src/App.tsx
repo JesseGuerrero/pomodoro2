@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { getTodos, addTodo, updateTodo, deleteTodo, getSessions, addSession, type Todo, type Session } from "./storage";
+import { getTodos, addTodo, updateTodo, deleteTodo, getSessions, addSession, deleteSession, type Todo, type Session } from "./storage";
 
 const GOOGLE_CLIENT_ID = "816183260763-1g50kp8s8dbbgj8v2gbc45aupaman4cl.apps.googleusercontent.com";
 const SCOPES = "https://www.googleapis.com/auth/calendar";
@@ -13,14 +13,23 @@ const Purple = "#6c63ff", Card = "#f5f5f7", Border = "#e2e2e8";
 
 type CalEvent = { id: string; summary: string; startIso: string; endIso: string; allDay: boolean };
 
-// Recurring todos: re-added on a cadence, but never duplicated — if the task is
-// already on the list it's skipped until the next cadence after it's gone.
-// `intervalMs` = test cadence (fires every N ms). `days` = real schedule
-// (0=Sun..6=Sat), checked once a minute; optional `atHour` (0-23) only adds
-// once that hour is reached. Use intervalMs OR days, not both.
-type Recurring = { text: string; intervalMs?: number; days?: number[]; atHour?: number };
+// Recurring todos: each entry is a SEQUENCE of texts inserted one at a time on a
+// cadence. The sequence is never broken and never has two of its members on the
+// list at once — the next text is only inserted after the previous one is popped
+// (completed/deleted). After the last it wraps to the first. A length-1 sequence
+// is just a single repeating task.
+// `intervalMs` = test cadence (fires every N ms). `days` = weekly schedule
+// (0=Sun..6=Sat). `dayOfMonth` = monthly schedule (1-31). Both checked once a
+// minute; optional `atHour` (0-23) only adds once that hour is reached.
+// Optional `weeks` constrains `days` to specific occurrences in the month:
+// 1=1st .. 5=5th, -1=last (e.g. days:[2], weeks:[2,4] = 2nd & 4th Tuesday).
+// Omit `weeks` for a plain weekly schedule.
+// Use intervalMs OR days OR dayOfMonth.
+type Recurring = { texts: string[]; intervalMs?: number; days?: number[]; weeks?: number[]; dayOfMonth?: number; atHour?: number };
 const RECURRING: Recurring[] = [
-  { text: "Shave", days: [1, 5], atHour: 12 }, // Monday & Friday at noon
+  { texts: ["Shave"], days: [1, 5], atHour: 12 }, // Monday & Friday at noon
+  { texts: ["Haircut"], dayOfMonth: 1, atHour: 12 }, // 1st of the month at noon
+  { texts: ["Gym"], days: [1, 3, 5, 6] }, // Monday, Wednesday, Friday, Saturday
 ];
 
 const isTauri = !!(window as any).__TAURI_INTERNALS__;
@@ -94,6 +103,7 @@ export default function App() {
   const bellPlayedAt = useRef<number | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
+  const [todosLoaded, setTodosLoaded] = useState(false);
   const [calEvents, setCalEvents] = useState<CalEvent[]>([]);
   const [calLoading, setCalLoading] = useState(true);
   const [calAuthed, setCalAuthed] = useState(false);
@@ -105,6 +115,8 @@ export default function App() {
   const [saveMsg, setSaveMsg] = useState("");
   const startedAt = useRef<string | null>(null);
   const todosRef = useRef<Todo[]>([]);
+  // Per-sequence cursor: current index + whether that index has been placed yet.
+  const seqState = useRef<Record<number, { idx: number; placed: boolean }>>({});
   const ivRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
 
@@ -113,25 +125,41 @@ export default function App() {
   // Keep a live ref of todos so the recurring timers always see the latest list.
   useEffect(() => { todosRef.current = todos; }, [todos]);
 
-  // Recurring todos — add each item on its cadence unless it's already on the list.
+  // Recurring todos — advance each sequence one text at a time, never duplicating.
   useEffect(() => {
-    if (!calAuthed) return;
-    const addIfAbsent = async (r: Recurring) => {
+    if (!calAuthed || !todosLoaded) return; // wait for Supabase todos so we don't re-add an existing one
+    const advance = async (r: Recurring, key: number) => {
       const now = new Date();
       if (r.days && !r.days.includes(now.getDay())) return;
+      if (r.weeks) {
+        const weekOfMonth = Math.ceil(now.getDate() / 7);
+        const lastOfKind = now.getDate() + 7 > new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+        if (!(r.weeks.includes(weekOfMonth) || (r.weeks.includes(-1) && lastOfKind))) return;
+      }
+      if (r.dayOfMonth != null && now.getDate() !== r.dayOfMonth) return;
       if (r.atHour != null && now.getHours() < r.atHour) return;
-      if (todosRef.current.some(t => t.text === r.text)) return;
-      const todo: Todo = { id: uid(), text: r.text, completed: false, priority: false, created_at: new Date().toISOString() };
+
+      const s = seqState.current[key] ?? (seqState.current[key] = { idx: 0, placed: false });
+      // If any member of the sequence is on the list, it's still active — wait.
+      // Resync the cursor to it so restarts don't break the sequence order.
+      const presentIdx = r.texts.findIndex(tx => todosRef.current.some(t => t.text === tx));
+      if (presentIdx !== -1) { s.idx = presentIdx; s.placed = true; return; }
+
+      // None present: if the current one was placed, it got popped — move to next.
+      if (s.placed) s.idx = (s.idx + 1) % r.texts.length;
+      const text = r.texts[s.idx];
+      const todo: Todo = { id: uid(), text, completed: false, priority: false, created_at: new Date().toISOString() };
+      s.placed = true;
       setTodos(prev => [todo, ...prev]);
       await addTodo(todo);
-      log(`Recurring: added "${r.text}"`);
+      log(`Recurring: added "${text}" (seq ${key} idx ${s.idx})`);
     };
-    const timers = RECURRING.map(r => {
-      addIfAbsent(r); // check immediately on mount
-      return setInterval(() => addIfAbsent(r), r.intervalMs ?? 60000);
+    const timers = RECURRING.map((r, key) => {
+      advance(r, key); // check immediately on mount
+      return setInterval(() => advance(r, key), r.intervalMs ?? 60000);
     });
     return () => timers.forEach(clearInterval);
-  }, [calAuthed]);
+  }, [calAuthed, todosLoaded]);
 
   const init = async () => {
     if (isTauri) {
@@ -139,7 +167,7 @@ export default function App() {
         accessToken = await invoke<string>("try_refresh");
         log(`Auto-login with stored token=${accessToken.slice(0, 8)}...`);
         setCalAuthed(true);
-        setTodos(await getTodos());
+        setTodos(await getTodos()); setTodosLoaded(true);
         setSessions(await getSessions());
         await loadCal();
       } catch {
@@ -152,7 +180,7 @@ export default function App() {
       await initGoogleAuth();
       await requestToken();
       setCalAuthed(true);
-      setTodos(await getTodos());
+      setTodos(await getTodos()); setTodosLoaded(true);
       setSessions(await getSessions());
       await loadCal();
     } catch {
@@ -174,7 +202,7 @@ export default function App() {
         await requestToken();
       }
       setCalAuthed(true);
-      setTodos(await getTodos());
+      setTodos(await getTodos()); setTodosLoaded(true);
       setSessions(await getSessions());
       await loadCal();
     } catch (e: any) {
@@ -352,6 +380,22 @@ export default function App() {
     await deleteTodo(id);
   };
 
+  // Log/unlog a past calendar event as a Pomodoro session (id links the two).
+  const sessionIdForEvent = (e: CalEvent) => `cal-${e.id}`;
+  const addEventSession = async (e: CalEvent) => {
+    const id = sessionIdForEvent(e);
+    if (sessions.some(s => s.id === id)) return;
+    const mins = Math.round((new Date(e.endIso).getTime() - new Date(e.startIso).getTime()) / 60000);
+    const row: Session = { id, started_at: e.startIso, duration_minutes: mins, completed: true };
+    setSessions(prev => [row, ...prev]);
+    await addSession(row);
+  };
+  const removeEventSession = async (e: CalEvent) => {
+    const id = sessionIdForEvent(e);
+    setSessions(prev => prev.filter(s => s.id !== id));
+    await deleteSession(id);
+  };
+
   const now = new Date();
   const todayStr = now.toDateString();
   const upcomingCal = calEvents.filter(e => !e.allDay && new Date(e.endIso) >= now);
@@ -492,15 +536,20 @@ export default function App() {
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4, marginTop: 8 }}>
                   Past Events <span style={{ color: "#16a34a" }}>+{calFocusMins}m focus</span>
                 </div>
-                {pastCal.map(e => (
-                  <div key={e.id} style={{ background: Card, borderRadius: 8, padding: "8px 12px", display: "flex", alignItems: "center", gap: 10, opacity: 0.6 }}>
+                {pastCal.map(e => {
+                  const logged = sessions.some(s => s.id === sessionIdForEvent(e));
+                  return (
+                  <div key={e.id} style={{ background: logged ? "#dcfce7" : Card, borderRadius: 8, padding: "8px 12px", display: "flex", alignItems: "center", gap: 10, opacity: logged ? 1 : 0.6 }}>
                     <span>✅</span>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 13, color: "#6b7280", textDecoration: "line-through" }}>{e.summary}</div>
                       <div style={{ fontSize: 11, color: "#9ca3af" }}>{fmtTime(e.startIso)} – {fmtTime(e.endIso)}</div>
                     </div>
+                    <button onClick={() => addEventSession(e)} disabled={logged} title="Log as session" style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${Border}`, background: logged ? "#e8e8ee" : "#fff", color: logged ? "#c4c4cc" : "#16a34a", cursor: logged ? "default" : "pointer", fontSize: 15, fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>+</button>
+                    <button onClick={() => removeEventSession(e)} disabled={!logged} title="Remove session" style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${Border}`, background: !logged ? "#e8e8ee" : "#fff", color: !logged ? "#c4c4cc" : "#dc2626", cursor: !logged ? "default" : "pointer", fontSize: 15, fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>−</button>
                   </div>
-                ))}
+                  );
+                })}
               </>}
               {sortedTodos.length > 0 && <>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4, marginTop: 8 }}>Tasks</div>
