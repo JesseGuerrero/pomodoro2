@@ -387,6 +387,11 @@ export default function App() {
   const addTime = () => { setSeconds(10 * 60); setFinished(false); bellPlayedAt.current = null; setRunning(true); };
   const reset = () => { if (ivRef.current) clearInterval(ivRef.current); setRunning(false); setIsBreak(false); setSeconds(duration * 60); setFinished(false); bellPlayedAt.current = null; startedAt.current = null; };
   const changeDur = (v: number) => { if (!running) { setDuration(v); if (!isBreak) setSeconds(v * 60); } };
+  const toggleMode = () => {
+    if (running) return; // don't switch mid-countdown
+    setFinished(false); bellPlayedAt.current = null; startedAt.current = null;
+    setIsBreak(b => { const next = !b; setSeconds((next ? BREAK : duration) * 60); return next; });
+  };
 
   const handleAddTodo = async () => {
     if (!todoInput.trim()) return;
@@ -433,7 +438,6 @@ export default function App() {
   const calFocusMins = pastCal.reduce((a, e) => a + Math.round((new Date(e.endIso).getTime() - new Date(e.startIso).getTime()) / 60000), 0);
   const todaySessions = sessions.filter(s => new Date(s.started_at).toDateString() === todayStr);
   const pomodoroMins = todaySessions.reduce((a, s) => a + s.duration_minutes, 0);
-  const totalFocusMins = pomodoroMins + calFocusMins;
   const weekDays = Array.from({ length: 7 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (6 - i)); return { label: d.toLocaleDateString("en", { weekday: "short" }), date: d.toDateString() }; });
   const weekData = weekDays.map(d => ({ ...d, mins: sessions.filter(s => new Date(s.started_at).toDateString() === d.date).reduce((a, s) => a + s.duration_minutes, 0) }));
   const maxMins = Math.max(...weekData.map(d => d.mins), 1);
@@ -472,7 +476,7 @@ export default function App() {
       {tab === "timer" && (
         <div style={{ display: "flex", flex: 1 }}>
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: "32px 24px", borderRight: `1px solid ${Border}` }}>
-            <div style={{ background: isBreak ? "#dcfce7" : "#ede9fe", borderRadius: 16, padding: "8px 20px", marginBottom: 24, fontSize: 13, fontWeight: 600, color: isBreak ? "#16a34a" : "#7c3aed" }}>
+            <div onClick={toggleMode} title={running ? "Pause to switch Focus / Break" : "Click to switch Focus / Break"} style={{ background: isBreak ? "#dcfce7" : "#ede9fe", borderRadius: 16, padding: "8px 20px", marginBottom: 24, fontSize: 13, fontWeight: 600, color: isBreak ? "#16a34a" : "#7c3aed", cursor: running ? "default" : "pointer", userSelect: "none" }}>
               {isBreak ? "☕ Break Time" : "🎯 Focus Session"}
             </div>
             <div style={{ position: "relative", marginBottom: 24 }}>
@@ -518,7 +522,7 @@ export default function App() {
             </div>
             {saveMsg && <div style={{ fontSize: 12, color: saveMsg.includes("Need") ? "#dc2626" : "#16a34a", marginBottom: 8 }}>{saveMsg}</div>}
             <div style={{ display: "flex", gap: 16, margin: "16px 0" }}>
-              {[{ label: "🍅 Pomodoros", val: todaySessions.length }, { label: "⏱ Focus Today", val: `${totalFocusMins}m` }].map(s => (
+              {[{ label: "🍅 Pomodoros", val: todaySessions.length }, { label: "⏱ Focus Today", val: `${Math.floor(pomodoroMins / 60)}h${pomodoroMins % 60}m` }].map(s => (
                 <div key={s.label} style={{ background: Card, borderRadius: 10, padding: "10px 18px", textAlign: "center" }}>
                   <div style={{ fontSize: 18, fontWeight: 700, color: "#7c3aed" }}>{s.val}</div>
                   <div style={{ fontSize: 11, color: "#6b7280" }}>{s.label}</div>
