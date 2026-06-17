@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import GtfsRt from "gtfs-realtime-bindings";
 import { getTodos, addTodo, updateTodo, deleteTodo, getSessions, addSession, deleteSession, type Todo, type Session } from "./storage";
 
 const GOOGLE_CLIENT_ID = "816183260763-1g50kp8s8dbbgj8v2gbc45aupaman4cl.apps.googleusercontent.com";
@@ -9,6 +10,8 @@ const SCOPES = "https://www.googleapis.com/auth/calendar";
 const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const uid = () => crypto.randomUUID();
+// A task that should show live VIA bus arrivals: exact text "Gym" or "gym".
+const isGymText = (s: string) => s === "Gym" || s === "gym";
 const Purple = "#6c63ff", Card = "#f5f5f7", Border = "#e2e2e8";
 
 type CalEvent = { id: string; summary: string; startIso: string; endIso: string; allDay: boolean };
@@ -122,6 +125,31 @@ async function gcalFetch(path: string, options?: RequestInit) {
   return res;
 }
 
+// VIA Metropolitan Transit live arrivals. The agency publishes a GTFS-Realtime
+// TripUpdates feed (protobuf) — the same source Google Maps ingests. We decode
+// it, keep stop_time_updates for our stop on our route, and return the next
+// `count` arrival clock times. HTTP-only host (no TLS served), allowlisted in
+// the Tauri http capability.
+const VIA_TRIPUPDATES = "http://gtfs.viainfo.net/tripupdate/tripupdates.pb";
+async function nextBusArrivals(routeId: string, stopId: string, count = 3): Promise<string[]> {
+  const f = isTauri ? tauriFetch : fetch;
+  const res = await f(VIA_TRIPUPDATES);
+  const feed = GtfsRt.transit_realtime.FeedMessage.decode(new Uint8Array(await res.arrayBuffer()));
+  const now = Date.now() / 1000;
+  const times: number[] = [];
+  for (const e of feed.entity) {
+    const tu = e.tripUpdate;
+    if (!tu || tu.trip?.routeId !== routeId) continue;
+    for (const stu of tu.stopTimeUpdate || []) {
+      if (stu.stopId !== stopId) continue;
+      const t = stu.arrival?.time ?? stu.departure?.time;
+      if (t != null && Number(t) > now) times.push(Number(t));
+    }
+  }
+  times.sort((a, b) => a - b);
+  return times.slice(0, count).map(ts => `${Math.max(0, Math.round((ts - now) / 60))}m`);
+}
+
 export default function App() {
   const [duration, setDuration] = useState(25);
   const BREAK = 5;
@@ -139,6 +167,7 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState("");
   const [todoInput, setTodoInput] = useState("");
+  const [busTimes, setBusTimes] = useState<string[]>([]); // live VIA route 43 @ stop 17847
   const [tab, setTab] = useState("timer");
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
@@ -190,6 +219,26 @@ export default function App() {
     });
     return () => timers.forEach(clearInterval);
   }, [calAuthed, todosLoaded]);
+
+  // Live bus arrivals for any "Gym"/"gym" task — fetched fresh while one is on
+  // the list and refreshed each minute so the times stay current (display only;
+  // never stored on the todo).
+  const hasGym = todos.some(t => isGymText(t.text));
+  useEffect(() => {
+    if (!hasGym) { setBusTimes([]); return; }
+    let active = true;
+    const refresh = async () => {
+      try {
+        const arrivals = await nextBusArrivals("43", "17847", 3);
+        if (active) setBusTimes(arrivals);
+      } catch (e: any) {
+        log(`bus arrivals fetch failed: ${e?.message || JSON.stringify(e)}`);
+      }
+    };
+    refresh();
+    const iv = setInterval(refresh, 60000);
+    return () => { active = false; clearInterval(iv); };
+  }, [hasGym]);
 
   const init = async () => {
     if (isTauri) {
@@ -522,7 +571,7 @@ export default function App() {
             </div>
             {saveMsg && <div style={{ fontSize: 12, color: saveMsg.includes("Need") ? "#dc2626" : "#16a34a", marginBottom: 8 }}>{saveMsg}</div>}
             <div style={{ display: "flex", gap: 16, margin: "16px 0" }}>
-              {[{ label: "🍅 Pomodoros", val: todaySessions.length }, { label: "⏱ Focus Today", val: `${Math.floor(pomodoroMins / 60)}h${pomodoroMins % 60}m` }].map(s => (
+              {[{ label: "🍅 Pomodoros", val: `${todaySessions.length}/6` }, { label: "⏱ Focus Today", val: `${Math.floor(pomodoroMins / 60)}h${pomodoroMins % 60}m` }].map(s => (
                 <div key={s.label} style={{ background: Card, borderRadius: 10, padding: "10px 18px", textAlign: "center" }}>
                   <div style={{ fontSize: 18, fontWeight: 700, color: "#7c3aed" }}>{s.val}</div>
                   <div style={{ fontSize: 11, color: "#6b7280" }}>{s.label}</div>
@@ -592,7 +641,12 @@ export default function App() {
                     <button onClick={() => toggleTodo(t)} style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${t.completed ? Purple : "#d1d5db"}`, background: t.completed ? Purple : "transparent", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 11 }}>
                       {t.completed ? "✓" : ""}
                     </button>
-                    <span style={{ flex: 1, fontSize: 13, textDecoration: t.completed ? "line-through" : "none", color: t.completed ? "#9ca3af" : "#1a1a2e" }}>{t.text}</span>
+                    <span style={{ flex: 1, fontSize: 13, textDecoration: t.completed ? "line-through" : "none", color: t.completed ? "#9ca3af" : "#1a1a2e" }}>
+                      {t.text}
+                      {isGymText(t.text) && busTimes.length > 0 && (
+                        <span style={{ color: Purple, fontWeight: 600 }}> ({busTimes.join(",")})</span>
+                      )}
+                    </span>
                     <button onClick={() => togglePriority(t)} style={{ background: t.priority ? "#dcfce7" : "none", border: t.priority ? "1px solid #bbf7d0" : `1px solid ${Border}`, borderRadius: 6, color: t.priority ? "#16a34a" : "#9ca3af", cursor: "pointer", fontSize: 10, fontWeight: 700, padding: "2px 6px", flexShrink: 0 }}>
                       {t.priority ? "● Priority" : "+ Priority"}
                     </button>
