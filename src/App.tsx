@@ -95,6 +95,7 @@ export default function App() {
   const [saveMsg, setSaveMsg] = useState("");
   const startedAt = useRef<string | null>(null);
   const ivRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
 
   useEffect(() => { init(); }, []);
 
@@ -146,7 +147,8 @@ export default function App() {
       log(`authAndLoadCal error: ${JSON.stringify(e)}`);
       setAuthLoading(false);
       setCalLoading(false);
-      setAuthError(e?.message || "Failed to connect. Check your internet and try again.");
+      const msg = typeof e === "string" ? e : e?.message || JSON.stringify(e);
+      setAuthError(msg || "Failed to connect. Check your internet and try again.");
     }
   };
 
@@ -202,20 +204,41 @@ export default function App() {
     }
   };
 
+  const unlockAudio = () => {
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    if (audioCtxRef.current.state === "suspended") {
+      audioCtxRef.current.resume();
+    }
+  };
+
   const playBell = () => {
     try {
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      [660, 880].forEach((freq, i) => {
-        const o = ctx.createOscillator(), g = ctx.createGain();
-        o.connect(g); g.connect(ctx.destination);
-        o.type = "sine"; o.frequency.value = freq;
-        g.gain.setValueAtTime(0, ctx.currentTime + i * 0.01);
-        g.gain.linearRampToValueAtTime(0.4, ctx.currentTime + i * 0.01 + 0.01);
-        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 2.5);
-        o.start(ctx.currentTime + i * 0.01);
-        o.stop(ctx.currentTime + 2.5);
-      });
-    } catch {}
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      const ctx = audioCtxRef.current;
+      const doPlay = () => {
+        [660, 880].forEach((freq, i) => {
+          const o = ctx.createOscillator(), g = ctx.createGain();
+          o.connect(g); g.connect(ctx.destination);
+          o.type = "sine"; o.frequency.value = freq;
+          g.gain.setValueAtTime(0, ctx.currentTime + i * 0.01);
+          g.gain.linearRampToValueAtTime(0.4, ctx.currentTime + i * 0.01 + 0.01);
+          g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 2.5);
+          o.start(ctx.currentTime + i * 0.01);
+          o.stop(ctx.currentTime + 2.5);
+        });
+      };
+      if (ctx.state === "suspended") {
+        ctx.resume().then(doPlay);
+      } else {
+        doPlay();
+      }
+    } catch (e) {
+      log(`playBell error: ${e}`);
+    }
   };
 
   const saveSession = async (dur: number, start: string | null) => {
@@ -245,6 +268,7 @@ export default function App() {
             bellPlayedAt.current = Date.now();
             setFinished(true);
             setRunning(false);
+            invoke("focus_window").catch(e => log(`focus error: ${e}`));
             return 0;
           }
           return s - 1;
@@ -266,7 +290,7 @@ export default function App() {
     return () => clearInterval(iv);
   }, [finished]);
 
-  const start = () => { if (!startedAt.current) startedAt.current = new Date().toISOString(); setFinished(false); bellPlayedAt.current = null; setRunning(true); };
+  const start = () => { unlockAudio(); if (!startedAt.current) startedAt.current = new Date().toISOString(); setFinished(false); bellPlayedAt.current = null; setRunning(true); };
   const pause = () => setRunning(false);
   const addTime = () => { setSeconds(10 * 60); setFinished(false); bellPlayedAt.current = null; setRunning(true); };
   const reset = () => { if (ivRef.current) clearInterval(ivRef.current); setRunning(false); setIsBreak(false); setSeconds(duration * 60); setFinished(false); bellPlayedAt.current = null; startedAt.current = null; };

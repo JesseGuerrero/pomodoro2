@@ -2,6 +2,7 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::fs::{self, OpenOptions};
 use std::path::PathBuf;
+use std::process::Command;
 
 fn app_dir() -> PathBuf {
     let dir = dirs::data_dir()
@@ -34,7 +35,7 @@ fn log(msg: &str) {
 }
 
 #[tauri::command]
-fn log_to_file(msg: String) { log(&msg); }
+fn log_to_file(msg: String) { eprintln!("[js] {}", msg); log(&msg); }
 
 fn save_tokens(access: &str, refresh: &str, expires_in: u64) {
     let expires_at = std::time::SystemTime::now()
@@ -76,6 +77,7 @@ fn do_refresh(refresh_token: &str) -> Result<String, String> {
 /// Try to get a valid token from stored refresh token (no browser popup)
 #[tauri::command]
 fn try_refresh() -> Result<String, String> {
+    eprintln!("[oauth] try_refresh called");
     let tokens = load_tokens().ok_or("No stored tokens")?;
     let refresh = tokens["refresh_token"].as_str().ok_or("No refresh_token stored")?;
     let expires_at = tokens["expires_at"].as_u64().unwrap_or(0);
@@ -93,12 +95,42 @@ fn try_refresh() -> Result<String, String> {
     do_refresh(refresh)
 }
 
+fn open_browser(url: &str) -> Result<(), String> {
+    // Try xdg-open with cleaned AppImage environment first
+    let mut cmd = Command::new("xdg-open");
+    cmd.arg(url);
+    cmd.env_remove("LD_LIBRARY_PATH");
+    cmd.env_remove("GDK_BACKEND");
+    if let Ok(appdir) = std::env::var("APPDIR") {
+        if let Ok(path) = std::env::var("PATH") {
+            let cleaned: Vec<&str> = path.split(':')
+                .filter(|p| !p.starts_with(&appdir))
+                .collect();
+            cmd.env("PATH", cleaned.join(":"));
+        }
+    }
+    match cmd.spawn() {
+        Ok(_) => {
+            eprintln!("[oauth] xdg-open succeeded");
+            return Ok(());
+        }
+        Err(e) => eprintln!("[oauth] xdg-open failed: {}, trying open crate", e),
+    }
+    // Fallback to open crate
+    open::that(url).map_err(|e| format!("Can't open browser: {}", e))
+}
+
 /// Full browser OAuth flow — returns access token, stores refresh token
 #[tauri::command]
 fn google_oauth() -> Result<String, String> {
+    eprintln!("[oauth] google_oauth called");
+    log("google_oauth called");
     let (client_id, client_secret) = load_creds()?;
+
     let listener = TcpListener::bind(format!("127.0.0.1:{}", PORT))
-        .map_err(|e| format!("Port {} in use: {}", PORT, e))?;
+        .map_err(|e| { eprintln!("[oauth] bind failed: {}", e); format!("Port {} in use — try closing the app and reopening: {}", PORT, e) })?;
+    listener.set_nonblocking(false).ok();
+    eprintln!("[oauth] listening on port {}", PORT);
 
     let redirect = format!("http://127.0.0.1:{}", PORT);
     let url = format!(
@@ -107,13 +139,29 @@ fn google_oauth() -> Result<String, String> {
     );
 
     log("Opening browser for OAuth...");
-    open::that(&url).map_err(|e| format!("Can't open browser: {}", e))?;
+    open_browser(&url)?;
+    eprintln!("[oauth] browser opened, waiting for redirect on port {}...", PORT);
 
-    // Wait for Google to redirect with ?code=AUTH_CODE
-    let (mut s, _) = listener.accept().map_err(|e| e.to_string())?;
+    // Wait for Google to redirect with ?code=AUTH_CODE (5 min timeout)
+    listener.set_nonblocking(true).ok();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
+    let stream = loop {
+        match listener.accept() {
+            Ok((s, _)) => break s,
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                if std::time::Instant::now() > deadline {
+                    return Err("Timed out waiting for Google sign-in (5 min). Try again.".into());
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(e) => return Err(format!("Listener error: {}", e)),
+        }
+    };
+    let mut s = stream;
     let mut buf = [0u8; 8192];
     let n = s.read(&mut buf).map_err(|e| e.to_string())?;
     let req = String::from_utf8_lossy(&buf[..n]);
+    eprintln!("[oauth] got redirect request");
 
     let code = req.lines().next()
         .and_then(|l| l.split("code=").nth(1))
@@ -121,14 +169,12 @@ fn google_oauth() -> Result<String, String> {
         .map(|s| s.to_string())
         .ok_or("No auth code in redirect")?;
 
-    // Show success page
     let page = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
         <html><body style='font-family:system-ui;text-align:center;padding:60px;background:#0f0f13;color:#e2e8f0'>\
         <h2>Connected! You can close this tab.</h2></body></html>";
     s.write_all(page.as_bytes()).ok();
     drop(s);
 
-    // Exchange auth code for tokens
     log("Exchanging auth code for tokens...");
     let resp: serde_json::Value = ureq::post("https://oauth2.googleapis.com/token")
         .send_form(&[
@@ -147,14 +193,21 @@ fn google_oauth() -> Result<String, String> {
     let expires_in = resp["expires_in"].as_u64().unwrap_or(3600);
     save_tokens(&access, &refresh, expires_in);
     log(&format!("OAuth complete, got refresh token, access={}...", &access[..8]));
+    eprintln!("[oauth] OAuth complete!");
 
     Ok(access)
+}
+
+#[tauri::command]
+fn focus_window(window: tauri::Window) {
+    let _ = window.unminimize();
+    let _ = window.set_focus();
 }
 
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_http::init())
-        .invoke_handler(tauri::generate_handler![google_oauth, try_refresh, log_to_file])
+        .invoke_handler(tauri::generate_handler![google_oauth, try_refresh, log_to_file, focus_window])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

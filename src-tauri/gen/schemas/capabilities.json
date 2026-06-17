@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Default capabilities","local":true,"windows":["main"],"permissions":["core:default",{"identifier":"http:default","allow":[{"url":"https://www.googleapis.com/*"}]}]}}
+{"default":{"identifier":"default","description":"Default capabilities","local":true,"windows":["main"],"permissions":["core:default","core:window:allow-set-focus","core:window:allow-unminimize","core:window:allow-show",{"identifier":"http:default","allow":[{"url":"https://www.googleapis.com/*"}]}]}}
