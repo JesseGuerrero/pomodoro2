@@ -13,6 +13,16 @@ const Purple = "#6c63ff", Card = "#f5f5f7", Border = "#e2e2e8";
 
 type CalEvent = { id: string; summary: string; startIso: string; endIso: string; allDay: boolean };
 
+// Recurring todos: re-added on a cadence, but never duplicated — if the task is
+// already on the list it's skipped until the next cadence after it's gone.
+// `intervalMs` = test cadence (fires every N ms). `days` = real schedule
+// (0=Sun..6=Sat), checked once a minute; optional `atHour` (0-23) only adds
+// once that hour is reached. Use intervalMs OR days, not both.
+type Recurring = { text: string; intervalMs?: number; days?: number[]; atHour?: number };
+const RECURRING: Recurring[] = [
+  { text: "Shave", days: [1, 5], atHour: 12 }, // Monday & Friday at noon
+];
+
 const isTauri = !!(window as any).__TAURI_INTERNALS__;
 const log = (msg: string) => { if (isTauri) invoke("log_to_file", { msg }).catch(() => {}); };
 let tokenClient: any = null;
@@ -94,10 +104,34 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
   const startedAt = useRef<string | null>(null);
+  const todosRef = useRef<Todo[]>([]);
   const ivRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
 
   useEffect(() => { init(); }, []);
+
+  // Keep a live ref of todos so the recurring timers always see the latest list.
+  useEffect(() => { todosRef.current = todos; }, [todos]);
+
+  // Recurring todos — add each item on its cadence unless it's already on the list.
+  useEffect(() => {
+    if (!calAuthed) return;
+    const addIfAbsent = async (r: Recurring) => {
+      const now = new Date();
+      if (r.days && !r.days.includes(now.getDay())) return;
+      if (r.atHour != null && now.getHours() < r.atHour) return;
+      if (todosRef.current.some(t => t.text === r.text)) return;
+      const todo: Todo = { id: uid(), text: r.text, completed: false, priority: false, created_at: new Date().toISOString() };
+      setTodos(prev => [todo, ...prev]);
+      await addTodo(todo);
+      log(`Recurring: added "${r.text}"`);
+    };
+    const timers = RECURRING.map(r => {
+      addIfAbsent(r); // check immediately on mount
+      return setInterval(() => addIfAbsent(r), r.intervalMs ?? 60000);
+    });
+    return () => timers.forEach(clearInterval);
+  }, [calAuthed]);
 
   const init = async () => {
     if (isTauri) {
